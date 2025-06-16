@@ -78,9 +78,13 @@ for r, inc_deg, pa_deg_val in zip(fine_radius, fine_inclination, fine_pa):
 # View should now be face-on
 ax.view_init(elev=45, azim=45)
 ax.set_zlim([-20.,20.])
+ax.set_xlim([-200.,200.])
+ax.set_ylim([-200.,200.])
 ax.set_xlabel('X (au)')
 ax.set_ylabel('Y (au)')
 ax.set_zlabel('Z (au)')
 ax.set_box_aspect([1, 1, 1])
+ax.set_axis_off()
+
 plt.tight_layout()
 plt.show()
