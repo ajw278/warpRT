@@ -10,48 +10,18 @@ import os
 
 import matplotlib.patches as patches
 
+from temp_extract import *
+
 R_MAX = 210.0
 # Load the file
-file_path = 'azimuthal_peakintensity_residuals_mwc758_13co.dat'
+file_path = 'azimuthal_peakintensity_residuals_mwc758.dat'
 
-# Read all lines
-with open(file_path, 'r') as f:
-    lines = f.readlines()
+plot_midplane = True  # Set to True to plot midplane temperature
 
-radii = []
-x_vals = []
-y_vals = []
-residuals = []
-
-for line in lines:
-    parts = line.strip().split()
-    if len(parts) < 3:
-        continue
-
-    r = float(parts[0])
-    azis_str = parts[1]
-    temps_str = parts[2]
-
-    azis_deg = np.array(list(map(float, azis_str.split(','))))
-    temps = np.array(list(map(float, temps_str.split(','))))
-    if len(azis_deg) != len(temps):
-        continue
-
-    azis_rad = np.radians(azis_deg)
-    x = r * np.cos(azis_rad)
-    y = r * np.sin(azis_rad)
-
-    radii.extend([r] * len(azis_deg))
-    x_vals.extend(x)
-    y_vals.extend(y)
-    residuals.extend(temps)
 
 # Convert to arrays and AU
 AU = 1.495978707e13
-x_vals = np.array(x_vals) 
-y_vals = np.array(y_vals) 
-residuals = np.array(residuals)
-
+x_vals, y_vals, radii, residuals = extract_dT(file_path)
 R_MIN= np.amin(radii)
 # Define grid
 grid_size = 300
@@ -72,6 +42,10 @@ R_grid = np.sqrt(X**2 + Y**2)
 Z_file[(R_grid > R_MAX) | (R_grid < R_MIN)] = np.nan
 print(R_grid)
 
+temp_emit, x_cart, y_cart, z_emit, idx = load_or_compute_temperature_components()
+T_midplane = np.load('tmap_midplane.npy') if plot_midplane and os.path.exists('tmap_midplane.npy') else None
+
+"""
 # --- Load or compute CO temperature map and residuals ---
 if not os.path.isfile('tmap_co.npy') or not os.path.isfile('xy_surf.npy') or not os.path.isfile('z_surf.npy'):
     dust = analyze.readData(ddens=True)
@@ -132,7 +106,27 @@ else:
     idx= np.load('idsurf_map.npy')
    
 
+"""
 
+
+
+# For CO emitting surface
+result_emit = fit_and_smooth_temperature(
+    x_cart, y_cart, temp_emit, AU, R_MIN, R_MAX, fwhm_arcsec=0.15, distance_pc=156
+)
+
+# For midplane (if available)
+if T_midplane is not None:
+    result_mid = fit_and_smooth_temperature(
+        x_cart, y_cart, T_midplane, AU, R_MIN, R_MAX, fwhm_arcsec=0.15, distance_pc=156
+    )
+    T_midplane = result_mid['T_resid_smoothed']
+
+x_cart = result_emit['x']
+y_cart = result_emit['y']
+T_resid_smoothed = result_emit['T_resid_smoothed']
+
+"""
 iinc_x = np.absolute(x_cart)/AU<R_MAX
 iinc_y = np.absolute(y_cart)/AU<R_MAX
 
@@ -150,6 +144,11 @@ tvals = temp_emit.ravel()
 x_cart = x_cart[iinc_x]
 
 y_cart = y_cart[iinc_y]
+
+if T_midplane is not None:
+    T_midplane = T_midplane[np.where(iinc_x)[0]][:, np.where(iinc_y)[0]]
+
+
 
 nbins = 100
 r_bins = np.logspace(np.log10(rvals.min()+1e-10), np.log10(rvals.max()), nbins+1)
@@ -176,26 +175,6 @@ R_emit_cm = np.sqrt(XX_emit**2 + YY_emit**2)
 T_model = powerlaw(R_emit_cm, T0_fit, q_fit)
 T_resid = temp_emit - T_model
 T_resid[(R_emit_cm/AU > R_MAX) | (R_emit_cm/AU < R_MIN)] = np.nan
-
-import matplotlib.gridspec as gridspec
-
-# Create figure with wider layout to fit colorbar on the side
-fig = plt.figure(figsize=(13, 5))
-gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 0.05], wspace=0.15)
-
-ax0 = fig.add_subplot(gs[0])
-ax1 = fig.add_subplot(gs[1])
-cax = fig.add_subplot(gs[2])  # Colorbar axis
-
-
-
-# Plot left panel
-im0 = ax0.pcolormesh(X, Y, Z_file, cmap='PuOr', shading='auto', vmin=-13, vmax=13)
-ax0.set_title('Temperature brightness')
-"""ax0.set_xlabel('x [au]')
-ax0.set_ylabel('y [au]')
-ax0.set_xlim([-R_MAX, R_MAX])
-ax0.set_ylim([-R_MAX, R_MAX])"""
 
 
 from scipy.ndimage import gaussian_filter
@@ -232,6 +211,146 @@ with np.errstate(invalid='ignore', divide='ignore'):
     
 
 T_resid_smoothed[RR_emit > R_MAX] = np.nan  # restore nan outside original mask
+"""
+
+"""
+
+
+import matplotlib.gridspec as gridspec
+
+ncols = 3 if plot_midplane else 2
+fig = plt.figure(figsize=(13 if not plot_midplane else 18, 5))
+gs = gridspec.GridSpec(1, ncols + 1, width_ratios=[1]*ncols + [0.05], wspace=0.15)
+
+ax0 = fig.add_subplot(gs[0])
+ax1 = fig.add_subplot(gs[1])
+if plot_midplane:
+    ax2 = fig.add_subplot(gs[2])
+cax = fig.add_subplot(gs[ncols])  # colorbar
+
+# Panel 0: Residual map
+im0 = ax0.pcolormesh(X, Y, Z_file, cmap='PuOr', shading='auto', vmin=-13, vmax=13)
+ax0.set_title('Temperature brightness')
+
+# Panel 1: CO model residuals
+im1 = ax1.pcolormesh(x_cart / AU, y_cart / AU, T_resid_smoothed[::-1, :], cmap='PuOr', shading='auto', vmin=-13, vmax=13)
+ax1.set_title('Model temperature residual')
+
+# Panel 2: Midplane map
+if plot_midplane and T_midplane is not None:
+    im2 = ax2.pcolormesh(x_cart / AU, y_cart / AU, T_midplane[::-1, :], cmap='PuOr', shading='auto', vmin=-1, vmax=1)
+    ax2.set_title('Midplane temperature [K]')
+axes_to_format = [ax0, ax1]
+if plot_midplane and T_midplane is not None:
+    axes_to_format.append(ax2)
+"""
+import matplotlib.gridspec as gridspec
+
+ncols = 3 if plot_midplane else 2
+fig = plt.figure(figsize=(13 if not plot_midplane else 18, 6))
+
+# First row for images, second row for colorbars
+gs = gridspec.GridSpec(2, ncols, height_ratios=[1, 0.05], hspace=0.25, wspace=0.15)
+
+ax0 = fig.add_subplot(gs[0, 0])
+ax1 = fig.add_subplot(gs[0, 1])
+if plot_midplane:
+    ax2 = fig.add_subplot(gs[0, 2])
+
+# Bottom colorbar axes
+cb0 = fig.add_subplot(gs[1, 0])
+cb1 = fig.add_subplot(gs[1, 1])
+if plot_midplane:
+    cb2 = fig.add_subplot(gs[1, 2])
+
+# Panel 0
+im0 = ax0.pcolormesh(X, Y, Z_file, cmap='PuOr', shading='auto', vmin=-13, vmax=13)
+cbar0 = plt.colorbar(im0, cax=cb0, orientation='horizontal')
+cbar0.set_label('Observed residual [K]')
+
+# Panel 1
+im1 = ax1.pcolormesh(x_cart / AU, y_cart / AU, T_resid_smoothed[::-1, :], cmap='PuOr', shading='auto', vmin=-13, vmax=13)
+cbar1 = plt.colorbar(im1, cax=cb1, orientation='horizontal')
+cbar1.set_label('Model residual [K]')
+
+# Panel 2
+if plot_midplane and T_midplane is not None:
+    im2 = ax2.pcolormesh(x_cart / AU, y_cart / AU, T_midplane[::-1, :], cmap='PuOr', shading='auto', vmin=-1, vmax=1)
+    cbar2 = plt.colorbar(im2, cax=cb2, orientation='horizontal')
+    cbar2.set_label('Midplane residual [K]')
+	
+
+axes_to_format = [ax0, ax1]
+if plot_midplane and T_midplane is not None:
+    axes_to_format.append(ax2)
+
+
+# Choose round radius intervals
+if R_MAX > 200:
+	dr = 50
+else:
+	dr = 20
+
+radii_au = np.arange(dr, R_MAX + 1, dr)  # e.g., [50, 100, 150, ...]
+
+angles_deg = np.arange(0, 360, 45)
+
+# Define the circle
+circle_radius = 0.15 * 156 * 2  # in au
+
+for ax in axes_to_format:
+    ax.set_xlabel("")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_ylabel("")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    # Concentric circles and radial lines
+    for r in radii_au:
+        circle = plt.Circle((0, 0), r, color='k', ls=':', lw=0.5, fill=False, zorder=20)
+        ax.add_patch(circle)
+        ax.text(r/np.sqrt(2), r/np.sqrt(2), f"{int(r)} au", fontsize=8, ha='left', va='bottom', color='k', zorder=21)
+
+    for angle in angles_deg:
+        angle_rad = np.deg2rad(angle)
+        ax.plot([0, R_MAX * np.cos(angle_rad)], [0, R_MAX * np.sin(angle_rad)],
+                color='k', ls=':', lw=0.5, zorder=20)
+
+    # Beam marker
+    ax.add_patch(patches.Circle((0, 0), radius=circle_radius, edgecolor='black',
+                                facecolor='gray', alpha=0.9, linestyle='--', linewidth=1.5))
+
+
+plt.tight_layout()
+plt.savefig('temperature_panels_mwc758.png', bbox_inches='tight', format='png')
+plt.show()
+
+
+
+
+
+exit()
+
+# Create figure with wider layout to fit colorbar on the side
+fig = plt.figure(figsize=(13, 5))
+gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 0.05], wspace=0.15)
+
+ax0 = fig.add_subplot(gs[0])
+ax1 = fig.add_subplot(gs[1])
+cax = fig.add_subplot(gs[2])  # Colorbar axis
+
+
+
+# Plot left panel
+im0 = ax0.pcolormesh(X, Y, Z_file, cmap='PuOr', shading='auto', vmin=-13, vmax=13)
+ax0.set_title('Temperature brightness')
+"""ax0.set_xlabel('x [au]')
+ax0.set_ylabel('y [au]')
+ax0.set_xlim([-R_MAX, R_MAX])
+ax0.set_ylim([-R_MAX, R_MAX])"""
+
+
 
 
 # Plot right panel
