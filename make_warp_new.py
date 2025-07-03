@@ -28,6 +28,7 @@ flang =0.2
 
 rin = 10 * au
 rout = 260*au
+rout = 150*au
 
 # Star parameters
 mstar, rstar, tstar = 1.4*ms,2.*rs, 7600.0
@@ -192,7 +193,7 @@ elif setup_number ==6:
 	flang =0.03
 
 	nr, ntheta, nphi = 400, 400, 400
-	nr, ntheta, nphi = 200, 360, 200
+	nr, ntheta, nphi = 300, 460, 250
 	r_edges = np.geomspace(rin, rout, nr+1)
 	theta_edges = np.linspace(THETA_OPEN,  np.pi - THETA_OPEN, ntheta+1)
 	phi_edges = np.linspace(0.0, 2 * np.pi, nphi+1)
@@ -212,7 +213,8 @@ elif setup_number ==6:
 	dpa1 =0.14124519749643605
 	dpa2 = 0.05
 	dpa1 =0.00
-	dpa2 = -0.2
+	#dpa2 = -0.2
+	dpa2 = -0.1
 
 	dinc_ext = np.insert(dinc, 0, dinc1)
 	dinc_ext = np.insert(dinc_ext, 0, dinc2)
@@ -220,7 +222,7 @@ elif setup_number ==6:
 	dpa_ext = np.insert(dpa_ext, 0, dpa2)
 
 
-	nphot = int(1e8)
+	nphot = int(2e6)
 
 
 			
@@ -231,29 +233,38 @@ elif setup_number ==6:
 f_inc = CubicSpline(r_ext, dinc_ext, extrapolate=True)
 f_pa  = CubicSpline(r_ext, dpa_ext, extrapolate=True)
 
-from scipy.interpolate import CubicSpline
-
 
 # Optional: plot to verify behavior
 r_test = np.linspace(0, 280, 1000)*au
-plt.figure(figsize=(10, 4))
+# Compute which r_ext points are not in r_warp (assuming 1D arrays)
+mask_new_points = ~np.isin(r_ext, r_warp)
 
-plt.subplot(1, 2, 1)
-plt.scatter(r_ext/au, dinc_ext,c='r')
-plt.plot(r_warp/au, dinc, 'k.', label='Original')
-plt.plot(r_test/au, f_inc(r_test), label='CubicSpline')
+# Create the figure
+plt.figure(figsize=(6, 4))
+
+# Plot delta inclination
+plt.plot(r_warp/au, dinc, 'k.', label='$\delta i$ (fit)', markersize=6)
+plt.plot(r_test/au, f_inc(r_test), 'C0-', label='$\delta i$ (CubicSpline)')
+
+# Plot delta PA
+plt.plot(r_warp/au, dpa, 'k^', label='$\delta$PA (fit)', markersize=6)
+plt.plot(r_test/au, f_pa(r_test), 'C1--', label='$\delta$PA (CubicSpline)')
+
+# Highlight extension points only
+plt.scatter(r_ext[mask_new_points]/au, dinc_ext[mask_new_points], 
+            c='C0', marker='x', label='$\delta i$ (added)', zorder=5)
+plt.scatter(r_ext[mask_new_points]/au, dpa_ext[mask_new_points], 
+            c='C1', marker='s', label='$\delta$PA (added)', zorder=5)
+
+# Formatting
 plt.axhline(0, color='gray', ls='--', lw=0.5)
-plt.title('Delta Inclination')
+plt.xlim(rin/au, 267)
+plt.ylim(-0.1, 0.1)
+plt.xlabel('Radius [au]')
+plt.ylabel('$\delta i$ or $\delta$PA [rad]')
 plt.legend()
-
-plt.subplot(1, 2, 2)
-plt.plot(r_warp/au, dpa, 'k.', label='Original')
-plt.plot(r_test/au, f_pa(r_test), label='CubicSpline')
-plt.axhline(0, color='gray', ls='--', lw=0.5)
-plt.title('Delta PA')
-plt.legend()
-
 plt.tight_layout()
+plt.savefig('warp_profile_extrapolated.pdf', bbox_inches='tight', format='pdf')
 plt.show()
 
 
@@ -687,9 +698,9 @@ def run():
 	print("Computing warped density in spherical coordinates...")
 	rho_sph, v_cart = compute_density_warped()
 
-	"""
+	
 
-	print("Generating Cartesian grid and interpolating...")
+	"""print("Generating Cartesian grid and interpolating...")
 	xc = np.linspace(-sizex, sizex, nx)
 	yc = np.linspace(-sizey, sizey, ny)
 	zc = np.linspace(-sizez, sizez, nz)
@@ -700,12 +711,12 @@ def run():
 	zi = compute_cell_walls(zc)
 	rho_cart = interpolate_to_cartesian(rho_sph, r, theta, phi, xg, yg, zg)
 	print("Plotting density slice...")
-	plot_density_slice(xg, zg, rho_cart)
+	plot_density_slice(xg, zg, rho_cart)"""
 
 
-	write_amr_grid(xi, yi, zi)
+	#write_amr_grid(xi, yi, zi)
 
-	write_density(rho_cart)"""
+	#write_density(rho_cart)
 	print('Mapping out surface structure...')
 	#find_structure_surface(rho_sph)
 	#find_structure_surface(rho_sph, threshold=1e-19)
@@ -713,7 +724,7 @@ def run():
 	#find_structure_surface(rho_sph, threshold=1e-17)
      
 	print("Plotting density slices...")
-	#plot_bipolar_r_theta_slice(rho_sph,phi_value=0.0)
+	plot_bipolar_r_theta_slice(rho_sph,phi_value=0.0)
 	#plot_bipolar_r_theta_slice(rho_sph,phi_value=np.pi/4.)
 	#plot_bipolar_r_theta_slice(rho_sph,phi_value=np.pi/2.)
 
